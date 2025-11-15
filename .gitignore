@@ -1,3 +1,8 @@
+# Data
+saved/
+*.csv
+data/
+
 # Bonsai scripting files
 .vs
 .vscode
@@ -14,7 +19,7 @@ Bonsai/Settings/
 *.bonsai.layout
 local
 .venv
-.csv
+
 
 
 # Byte-compiled / optimized / DLL files
