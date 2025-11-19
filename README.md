@@ -15,8 +15,8 @@ For each detected pulse, the code refines the true start/end using quantiles and
 - Pulse “squareness” -> Area under the curve (AUC) based
 - Delay from the trigger origin (odor channel vs. end-valve)
 
-![Sq_graph](img/squareness/graph.png)
-![Sq_formula](img/squareness/formula.png)
+![Sq_graph](img/squareness/graph.PNG)
+![Sq_formula](img/squareness/formula.PNG)
 
 ### 3. Grouping & Export
 Pulses are grouped by **channel** and **end-valve origin** (boolean that is true if the pulse has been triggered by the endvalve or False if it has been trggered by a change in the odor channel). Aggregated metrics (mean, std_dev, percentile errors) are computed for each group. Results can be exported to CSV.
