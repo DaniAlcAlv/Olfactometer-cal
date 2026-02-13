@@ -1,0 +1,261 @@
+import harp
+import os
+import pandas as pd 
+import json
+
+verbose = True
+
+# -----------------------------
+# Loading data from json files
+# -----------------------------
+
+def _read_json(path: str) -> dict:
+    """Read a JSON file and return its contents as a dict."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Required file not found: {path}") from e
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON format in file: {path}") from e
+
+def load_channel_info(base_path: str) -> tuple[dict[str], bool] :
+    """  Read task logic and/or rig input JSON files to extract channel configuration and rig info and returns them as a dict. 
+    It also detects whether the task is a calibration task and returns it as a bool.   """
+    
+    tsk_lgc = _read_json(f"{base_path}/behavior/Logs/tasklogic_input.json")
+ 
+    channel_cfg = {}
+    if tsk_lgc["name"] == "OlfactometerCalibration":
+        is_calibration = True
+        for num in range(0, 4):
+            try:
+                channel_cfg["Channel"+str(num)] = {}  # initialize as dict
+                channel_cfg["Channel"+str(num)]["odorant"] = tsk_lgc["task_parameters"]["channel_config"][str(num)]["odorant"]
+                channel_cfg["Channel"+str(num)]["flow_rate"] = tsk_lgc["task_parameters"]["channel_config"][str(num)]["flow_rate"]
+                channel_cfg["Channel"+str(num)]["odorant_dilution"] = tsk_lgc["task_parameters"]["channel_config"][str(num)]["odorant_dilution"]
+            except:
+                print(f"Error when reading channel{num} in the tasklogic json")
+    else:
+        is_calibration = False
+        rig_data = _read_json(f"{base_path}/behavior/Logs/rig_input.json")
+        for num in range(0, 4):
+            try:
+                channel_cfg["Channel"+str(num)] = {}  
+                channel_cfg["Channel"+str(num)]["odorant"] = rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"][str(num)]["odorant"]
+                channel_cfg["Channel"+str(num)]["flow_rate"] = rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"][str(num)]["flow_rate"]
+                channel_cfg["Channel"+str(num)]["odorant_dilution"] = rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"][str(num)]["odorant_dilution"]
+            except:
+                print(f"Error when reading channel{num} in the riginput json")
+
+    # --- PRINT INFO ---
+    if verbose:   print(f"Channels - {channel_cfg}")
+
+    return channel_cfg, is_calibration
+
+def load_rig_info(base_path: str) -> dict[str, str] :
+    """  Read rig input JSON file to extract rig info and returns it as a dict. 
+    Returns
+    -------
+    dict
+        {"computer_name": "DTXXXXXXX", "rig_name": "YY"}
+    """
+    # LOAD RIG INFO (COMPUTER AND RIG NAME) 
+    rig_data = _read_json(f"{base_path}/behavior/Logs/rig_input.json")
+    
+    rig_info = {}  # initialize as dict
+    rig_info["computer_name"] = rig_data["computer_name"]
+    rig_info["rig_name"] = rig_data["rig_name"]
+
+    # --- PRINT INFO ---
+    if verbose:
+        print(f"Loaded rig info: Computer - {rig_info['computer_name']}, Rig - {rig_info['rig_name']}")
+
+    return  rig_info
+
+def load_sw_registers(base_path: str) -> pd.DataFrame:
+    """Reads the registers from the software logs and returns a dictionary, where:
+        -The keys correspond to register names and are pd.DataFrames.
+    """ 
+
+    rows = []
+    with open(f"{base_path}/behavior/SoftwareEvents/ActivePatch.json", "r") as f:
+        for line in f:
+            obj = json.loads(line)
+            row = {"timestamp": obj["timestamp"]}
+            row.update(obj["data"])
+            rows.append(row)
+
+    return pd.DataFrame(rows)
+
+# -----------------------------
+# Loading data from harp devices
+# -----------------------------
+
+def load_olf_registers(base_path: str) -> dict[str, pd.DataFrame|pd.Series]:
+    """
+    Reads the registers from the harp files and returns a dictionary, where the keys correspond to olfactometer registers and are pd.DataFrames.
+        
+    """ 
+    register_dict = {}
+    OlfReader = harp.create_reader(base_path + "/behavior/Olfactometer.harp", include_common_registers=False)
+
+    for name, reg in OlfReader.registers.items():
+        register_dict[name] = reg.read()
+    
+    return register_dict
+
+def load_olf_and_alog(base_path: str) -> dict[str, pd.DataFrame|pd.Series]:
+    """
+    Reads the registers from the harp files and returns a dictionary, where:
+        -The 'Analog' key contains a pd.Series of the main PID signal, 
+        -The other keys correspond to olfactometer registers and are pd.DataFrames.
+    """ 
+    register_dict = load_olf_registers(base_path)
+    AlogReader = harp.create_reader(base_path+ "/behavior/AnalogInput.harp", include_common_registers=False)
+    register_dict['Analog'] = AlogReader.AnalogData.read()['Channel0']
+
+    return register_dict
+
+def available_devices(base_path: str) -> list[str]:
+    """Reads the behavior folder and returns a list of possible harp device files to read registers from. 
+    This is useful to detect which registers are available in a given folder, as some sessions may not have all the registers""" 
+    devices = []
+    for file in os.listdir(base_path + "/behavior"):
+        if file.endswith(".harp"):
+            devices.append(file)
+    
+    return devices
+
+def possible_registers(base_path: str, harp_name: str) -> list[str]:
+    """Returns a list of possible registers to read from a given HARP device folder. Useful to detect which registers are available in a given device."""
+    registers = read_harp_register(base_path, harp_name, register_name=None)  # This will raise an error if the device doesn't exist
+    return sorted(registers.keys())
+
+def read_harp_register(
+    base_path: str,
+    harp_name: str,
+    register_name: str | list[str] | None = None,
+    include_common_registers: bool = False, # Optional: whether to include common registers in the output 
+    always_dict: bool = False,  # optional: force dict return even for a single register
+    ) -> pd.DataFrame | dict[str, pd.DataFrame]:
+    """
+    Read one, many, or all registers from a HARP device folder.
+
+    register_name:
+      - None  -> read all -> dict[str, DataFrame]
+      - str   -> read one -> DataFrame (unless always_dict=True -> dict)
+      - list  -> read many -> dict[str, DataFrame]
+    """
+
+    device_path = os.path.join(base_path, "behavior", harp_name)
+    reader = harp.create_reader(device_path, include_common_registers=include_common_registers)
+
+    def _read_one(name: str) -> pd.DataFrame:
+        try:
+            return reader.registers[name].read()
+        except KeyError as e:
+            available = ", ".join(sorted(reader.registers.keys()))
+            raise KeyError(f"Register '{name}' not found. Available: [{available}]") from e
+
+    if register_name is None:
+        out = {name: reg.read() for name, reg in reader.registers.items()}
+        return out
+
+    if isinstance(register_name, str):
+        df = _read_one(register_name)
+        return {register_name: df} if always_dict else df
+
+    if isinstance(register_name, (list, tuple)):
+        missing = [n for n in register_name if n not in reader.registers]
+        if missing:
+            available = ", ".join(sorted(reader.registers.keys()))
+            raise KeyError(f"Missing registers: {missing}. Available: [{available}]")
+        return {name: _read_one(name) for name in register_name}
+
+    raise TypeError("register_name must be None, a string, or a list/tuple of strings.")
+
+def device_versions(base_path: str) -> dict[str, dict[str, str]]:
+    import yaml
+    """
+    Reads the behavior folder and returns a dictionary of all HARP devices
+    and their versions.
+
+    Each .harp folder is expected to contain a device.yml file with fields:
+        device:
+        whoAmI:
+        firmwareVersion:
+        hardwareTargets:
+
+    Returns
+    -------
+    dict
+        {
+            "(device).harp": {
+                "device": "...",
+                "whoAmI": "...",
+                "firmwareVersion": "...",
+                "hardwareTargets": "..."
+            },
+            ...
+        }
+    """
+    devices = {}
+    behavior_path = os.path.join(base_path, "behavior")
+    if not os.path.isdir(behavior_path):
+        raise FileNotFoundError(f"Behavior folder not found: {behavior_path}")
+
+    for folder in os.listdir(behavior_path):
+        if not folder.endswith(".harp"):
+            continue
+
+        yml_path = os.path.join(behavior_path, folder, "device.yml")
+
+        if not os.path.isfile(yml_path):
+            # Skip devices without metadata
+            continue
+
+        try:
+            with open(yml_path, "r") as f:
+                yml = yaml.safe_load(f)
+        except Exception as e:
+            print(f"Could not read {yml_path}: {e}")
+            continue
+
+        devices[folder.replace(".harp", "")] = {
+            "device": yml.get("device"),
+            "whoAmI": yml.get("whoAmI"),
+            "firmwareVersion": yml.get("firmwareVersion"),
+            "hardwareTargets": yml.get("hardwareTargets"),
+        }
+    return devices
+
+
+# -----------------------------
+# Saving data
+# -----------------------------
+def save_to_csv(groups_of_pulses: dict, csv_name: str) -> pd.DataFrame:
+    rows = []
+
+    for group in groups_of_pulses.values():
+        # Base metadata
+        all_info_dict = {
+            "rig": group.rig,
+            "computer": group.computer,
+            "channel": group.channel,
+            "odorant": group.odorant,
+            "flow": group.flow,
+            "dilution": group.dilution,
+            "envalve": group.pulses_created_by_envalve,
+        }
+
+        # Add metrics
+        for metric, summary in group.metrics.items():
+            all_info_dict[metric] = summary["mean"]
+            all_info_dict[f"{metric}_std"] = summary["std"]
+
+        rows.append(all_info_dict)
+
+    df = pd.DataFrame(rows)
+    df.to_csv(f"../saved/{csv_name}.csv", index=False)
+    return df
