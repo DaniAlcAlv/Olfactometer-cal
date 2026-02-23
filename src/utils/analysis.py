@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import numbers
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
 from collections import defaultdict
 
 verbose = True
@@ -21,15 +20,13 @@ class RegionMetrics:
         df = df.iloc[k : n - k]
     
         x = df.index.values
-        y = df.iloc[:, 0]
-        y_val = df.iloc[:, 0].values
+        y = df.iloc[:, 0].values
         self.mean = y.mean()
         self.std = y.std()
         self.median, self.q16, self.q84 = np.percentile(y, [50, 16, 84])
         self.err_minus = max(0, self.mean - self.q16)
         self.err_plus  = max(0, self.q84 - self.mean)
-        x = x.reshape(-1, 1)
-        self.corrected_slope = float(LinearRegression().fit(x, y_val).coef_[0])  # pyright: ignore[reportArgumentType]
+        self.corrected_slope, _, _ = linear_regression(x.tolist(), y.tolist())
 
 class Pulse:
     def __init__(self, signal: pd.DataFrame, registers: dict, approx_start: float, approx_end: float, next_pulse_start: float|None, previous_pulse_end: float|None):
@@ -532,6 +529,37 @@ def group_pulses(pulses: list[Pulse], metrics: list[str], channel_cfg: dict, rig
         groups[key]=PulseGroup(pulses_in_group, channel, pulses_created_by_envalve, channel_cfg, rig_info, metrics=metrics)
     return groups
 
+def linear_regression(x: list[float], y: list[float]) -> tuple[float, float, float]:
+    """
+    Compute simple linear regression for y = m*x + n.
+
+    Returns:
+        m (float): slope
+        n (float): intercept
+        r2 (float): coefficient of determination
+    """
+    if len(x) != len(y):
+        raise ValueError("x and y must have the same length")
+    n_x = len(x)
+    if n_x < 2:
+        raise ValueError("At least two data points are required for linear regression")
+
+    mean_x = sum(x) / n_x
+    mean_y = sum(y) / n_x
+
+    ss_xy = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y))
+    ss_xx = sum((xi - mean_x) ** 2 for xi in x)
+    
+    if ss_xx == 0:
+        raise ValueError("Variance of x is zero (cannot compute slope)")
+    m = ss_xy / ss_xx
+    n = mean_y - m * mean_x
+
+    ss_res = sum((yi - (m * xi + n)) ** 2 for xi, yi in zip(x, y))
+    ss_tot = sum((yi - mean_y) ** 2 for yi in y)
+
+    r2 = 1 - ss_res / ss_tot if ss_tot != 0 else (1.0 if ss_res == 0 else 0.0)
+    return m, n, r2
 
 # -----------------------------
 # Saving data
