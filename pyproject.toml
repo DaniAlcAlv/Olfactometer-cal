@@ -16,7 +16,7 @@ dependencies = [
     "pandas",
     "matplotlib",
     "seaborn",
-    "scipy"
+    "scipy",
     "pyyaml"
 ]
 
