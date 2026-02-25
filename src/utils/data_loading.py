@@ -2,6 +2,7 @@ import harp
 import os
 import pandas as pd 
 import json
+from pathlib import Path
 
 verbose = True
 
@@ -73,19 +74,20 @@ def load_rig_info(base_path: str) -> dict[str, str] :
 
     return  rig_info
 
-def load_sw_registers(base_path: str) -> pd.DataFrame:
-    """Reads the registers from the software logs and returns a dictionary, where:
-        -The keys correspond to register names and are pd.DataFrames.
+def load_sw_register(base_path: str, register: str) -> pd.DataFrame:
+    """
+    Reads a register, such as ActivePatch, ActiveSite, or any of the others located in the <base_path>/behavior/SoftwareEvents directory. 
+    Returns a dataframe with these columns: 'timestamp' and the flattened keys from 'data' 
     """ 
 
     rows = []
-    with open(f"{base_path}/behavior/SoftwareEvents/ActivePatch.json", "r") as f:
+    path = Path(base_path) / "behavior" / "SoftwareEvents" / f"{register}.json"
+    with path.open("r") as f:
         for line in f:
             obj = json.loads(line)
             row = {"timestamp": obj["timestamp"]}
             row.update(obj["data"])
             rows.append(row)
-
     return pd.DataFrame(rows)
 
 # -----------------------------
@@ -105,15 +107,15 @@ def load_olf_registers(base_path: str) -> dict[str, pd.DataFrame|pd.Series]:
     
     return register_dict
 
-def load_olf_and_alog(base_path: str) -> dict[str, pd.DataFrame|pd.Series]:
+def load_olf_and_alog(base_path: str, alog_channel: str = 'Channel0') -> dict[str, pd.DataFrame|pd.Series]:
     """
     Reads the registers from the harp files and returns a dictionary, where:
-        -The 'Analog' key contains a pd.Series of the main PID signal, 
+        -The 'Analog' key contains a pd.Series of the PID signal recorded from <channel>, 
         -The other keys correspond to olfactometer registers and are pd.DataFrames.
     """ 
     register_dict = load_olf_registers(base_path)
     AlogReader = harp.create_reader(base_path+ "/behavior/AnalogInput.harp", include_common_registers=False)
-    register_dict['Analog'] = AlogReader.AnalogData.read()['Channel0']
+    register_dict['Analog'] = AlogReader.AnalogData.read()[alog_channel]
 
     return register_dict
 
@@ -174,61 +176,6 @@ def read_harp_register(
         return {name: _read_one(name) for name in register_name}
 
     raise TypeError("register_name must be None, a string, or a list/tuple of strings.")
-
-def device_versions(base_path: str) -> dict[str, dict[str, str]]:
-    import yaml
-    """
-    Reads the behavior folder and returns a dictionary of all HARP devices
-    and their versions.
-
-    Each .harp folder is expected to contain a device.yml file with fields:
-        device:
-        whoAmI:
-        firmwareVersion:
-        hardwareTargets:
-
-    Returns
-    -------
-    dict
-        {
-            "(device).harp": {
-                "device": "...",
-                "whoAmI": "...",
-                "firmwareVersion": "...",
-                "hardwareTargets": "..."
-            },
-            ...
-        }
-    """
-    devices = {}
-    behavior_path = os.path.join(base_path, "behavior")
-    if not os.path.isdir(behavior_path):
-        raise FileNotFoundError(f"Behavior folder not found: {behavior_path}")
-
-    for folder in os.listdir(behavior_path):
-        if not folder.endswith(".harp"):
-            continue
-
-        yml_path = os.path.join(behavior_path, folder, "device.yml")
-
-        if not os.path.isfile(yml_path):
-            # Skip devices without metadata
-            continue
-
-        try:
-            with open(yml_path, "r") as f:
-                yml = yaml.safe_load(f)
-        except Exception as e:
-            print(f"Could not read {yml_path}: {e}")
-            continue
-
-        devices[folder.replace(".harp", "")] = {
-            "device": yml.get("device"),
-            "whoAmI": yml.get("whoAmI"),
-            "firmwareVersion": yml.get("firmwareVersion"),
-            "hardwareTargets": yml.get("hardwareTargets"),
-        }
-    return devices
 
 
 # -----------------------------
