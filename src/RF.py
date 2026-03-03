@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 import unicodedata
 import re
 from datetime import datetime, timezone
@@ -21,6 +21,21 @@ GREEK_MAP = {
     "epsilon": "e", "lambda": "l", "mu": "m", "pi": "p",
     "sigma": "s", "theta": "t", "zeta": "z",
 }
+
+#List of sources where the RF comes from
+SOURCES = Literal[ 
+    "PID handbook",
+    "Liam Jennings et al",
+    "Honeywell",
+    "mPower",
+    "JJS",
+    "Airmet",
+    "Altair",
+    "Ion Sc",
+    "GfG",
+    "WatchGas",
+]
+
 
 def normalize_name(text: Optional[Union[str, float]]) -> str:
     """
@@ -52,6 +67,10 @@ class Odorant(BaseModel):
     name: List[str] = Field(..., min_length=1)
     CAS: str = Field(...)
     RF: float = Field(..., ge=0, le=20)
+    source: List[SOURCES] = Field(
+        default_factory=list,
+        description="List of sources where the RF comes from"
+    )
 
     model_config = {"extra": "forbid", "str_strip_whitespace": True}
 
@@ -175,14 +194,31 @@ class RFData(BaseModel):
 
 
 def build_rfdata_example() -> "RFData":
-    """    Build a small, valid RFData object with a couple of odorants.   """
+    """    Build a small, valid RFData object with small sample of odorants.   """
     example_odorants: List["Odorant"] = [
-        Odorant(name=["Alpha pinene", "a-pinene"], CAS="80-56-8", RF=0.35),
-        Odorant(name=["Eugenol"], CAS="97-53-0", RF=0.50),
+        Odorant(
+            name=["Alpha pinene", "a-pinene", "Alpha-pinene"],
+            CAS="7785-70-8",
+            RF=0.31,
+            source=["PID handbook", "mPower", "Honeywell"],
+        ),
+        Odorant(
+            name=["Eugenol"],
+            CAS="97-53-0",
+            RF=0.50,
+            source=["mPower"],
+        ),
+        Odorant(
+            name=["Valeraldehide", "Pentanal"],
+            CAS="110-62-3",
+            RF=1.5,
+            source=["Airmet"],
+        ),
     ]
 
+
     rfdata = RFData(
-        version="1.0.0",
+        version="0.1.0",
         date=datetime.now(tz=timezone.utc),
         Odorants=example_odorants,
     )
@@ -197,7 +233,7 @@ def build_rfdata_from_file(path) -> Optional[RFData]:
             print("RF.json is valid ✅")
         return rf_data
     except Exception as e:
-        print("Validation error ❌ in RFData class")
+        print("❌ Validation error when generating RFData class")
         print(e)
         return None
         
@@ -247,5 +283,3 @@ if __name__ == "__main__":
     
     out = write_rfdata_json(rf_data, args.output_dir)
     print(f"RF.json written to: {out.resolve()}")
-
-
