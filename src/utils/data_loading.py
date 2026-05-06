@@ -27,7 +27,9 @@ def load_channel_info(base_path: str) -> tuple[dict[str], bool] :
     tsk_lgc = _read_json(f"{base_path}/behavior/Logs/tasklogic_input.json")
  
     channel_cfg = {}
-    if tsk_lgc["name"] == "OlfactometerCalibration":
+    print(tsk_lgc, tsk_lgc["name"] == "OlfactometerCalibration" and "task_parameters" in tsk_lgc and "channel_config" in tsk_lgc["task_parameters"])
+    if tsk_lgc.get("name") == "OlfactometerCalibration" and "channel_config" in tsk_lgc.get("task_parameters", {}):
+        # before v1, the channel config was in the tasklogic json on calibration tasks. We want to keep supporting this format for old sessions, but for new ones we moved the channel config to the rig input json, so now we need to check both places.
         is_calibration = True
         for num in range(0, 4):
             try:
@@ -37,17 +39,31 @@ def load_channel_info(base_path: str) -> tuple[dict[str], bool] :
                 channel_cfg["Channel"+str(num)]["odorant_dilution"] = tsk_lgc["task_parameters"]["channel_config"][str(num)]["odorant_dilution"]
             except:
                 print(f"Error when reading channel{num} in the tasklogic json")
+
+    elif tsk_lgc.get("name") == "OlfactometerCalibration":
+        is_calibration = True
+        rig_data = _read_json(f"{base_path}/behavior/Logs/rig_input.json")
+        for num in range(0, 4):
+            try:
+                channel_cfg["Channel"+str(num)] = {}
+                channel_cfg["Channel"+str(num)]["odorant"] = rig_data["harp_olfactometer"]["calibration"]["channel_config"][str(num)]["odorant"]
+                channel_cfg["Channel"+str(num)]["flow_rate"] = rig_data["harp_olfactometer"]["calibration"]["channel_config"][str(num)]["flow_rate"]
+                channel_cfg["Channel"+str(num)]["odorant_dilution"] = rig_data["harp_olfactometer"]["calibration"]["channel_config"][str(num)]["odorant_dilution"]
+            except:
+                print(f"Error when reading channel{num} in the rig input json for a calibration session")
+
     else:
         is_calibration = False
         rig_data = _read_json(f"{base_path}/behavior/Logs/rig_input.json")
         for num in range(0, 4):
+            print("aaaa", rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"])
             try:
                 channel_cfg["Channel"+str(num)] = {}  
                 channel_cfg["Channel"+str(num)]["odorant"] = rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"][str(num)]["odorant"]
                 channel_cfg["Channel"+str(num)]["flow_rate"] = rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"][str(num)]["flow_rate"]
                 channel_cfg["Channel"+str(num)]["odorant_dilution"] = rig_data["harp_olfactometer"]["calibration"]["input"]["channel_config"][str(num)]["odorant_dilution"]
             except:
-                print(f"Error when reading channel{num} in the riginput json")
+                print(f"Error when reading channel{num} in the rig input json for a real session")
 
     # --- PRINT INFO ---
     if verbose:   print(f"Channels - {channel_cfg}")
@@ -206,3 +222,8 @@ def save_to_csv(groups_of_pulses: dict, csv_name: str) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df.to_csv(f"../saved/{csv_name}.csv", index=False)
     return df
+
+
+
+base_path = r"C:\Data\Multiplex\First try"
+load_channel_info(base_path)
