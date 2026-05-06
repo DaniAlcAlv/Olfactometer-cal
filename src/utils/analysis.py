@@ -318,9 +318,9 @@ class PulseGroup:
         self.channel = channel
         self.rig = rig_info["computer_name"]
         self.computer = rig_info["rig_name"]
-        self.odorant = channel_cfg[channel]['odorant'] if channel_cfg else 'Unknown'
-        self.flow = channel_cfg[channel]['flow_rate'] if channel_cfg else np.nan
-        self.dilution = channel_cfg[channel]['odorant_dilution'] if channel_cfg else np.nan
+        self.odorant = channel_cfg[channel]['odorant'] if channel_cfg and channel in channel_cfg and 'odorant' in channel_cfg[channel] else 'Unknown'
+        self.flow = channel_cfg[channel]['flow_rate'] if channel_cfg and channel in channel_cfg and 'flow_rate' in channel_cfg[channel] else np.nan
+        self.dilution = channel_cfg[channel]['odorant_dilution'] if channel_cfg and channel in channel_cfg and 'odorant_dilution' in channel_cfg[channel] else np.nan
         self.pulses_created_by_envalve = pulses_created_by_envalve
         self.metrics = {}
         self.aggregate_metrics(['plateau.median', 'pre_pulse.mean'])
