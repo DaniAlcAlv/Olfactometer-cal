@@ -242,7 +242,3 @@ def save_to_csv(groups_of_pulses: dict, csv_name: str) -> pd.DataFrame:
     df.to_csv(f"../saved/{csv_name}.csv", index=False)
     return df
 
-
-
-base_path = r"C:\Data\Multiplex\First try"
-load_channel_info(base_path)
