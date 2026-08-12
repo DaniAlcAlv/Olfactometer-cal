@@ -62,13 +62,6 @@ def draw_general_graph(
     if isinstance(analog, pd.Series):
         analog = analog.to_frame('Analog')
 
-    # # ---- Basic checks and sorting ----
-    # if analog.empty:
-    #     raise ValueError("Empty 'Analog' data; nothing to plot.")
-    # analog = analog.sort_index()
-    # flow_df = flow_df.sort_index()
-    # endvalve_df = endvalve_df.sort_index()
-
 
     # ---- Create figure/axes ----
     fig, ax = plt.subplots(figsize=figsize)
@@ -159,7 +152,8 @@ def draw_general_graph(
     channel_bg_colors = {
             'Channel0': "#00b1f7", 
             'Channel1': "#ffa200",  
-            'Channel2': "#09ff00",  
+            'Channel2': "#09ff00", 
+            # 'Channel3': "#ff5bc8" 
         }
     for s, e, ch in ch_segments:
         if ch is None:
@@ -424,4 +418,128 @@ def plot_combined_group_dashboard(
     ax.yaxis.set_major_locator(MaxNLocator(nbins=10))
     ax.grid(True, axis='y', linestyle='-', alpha=0.5)
 
+from itertools import cycle
+from typing import Iterable
+
+def custom_registers_plot(
+    *continuous: pd.Series | pd.DataFrame,
+    booleans: Iterable[pd.Series | pd.DataFrame] = (),
+    figsize=(16, 7),
+    title: str | None = None,
+    line_kwargs: dict | None = None,
+    boolean_alpha: float = 0.18,
+):
+    """
+    Plot continuous time-series registers as lines and boolean registers
+    as background colored regions.
+
+    Parameters
+    ----------
+    *continuous
+        Any number of pd.Series or pd.DataFrame objects with:
+        - monotonic datetime-like index
+        - one or more numeric columns
+
+    booleans
+        Iterable of pd.Series or pd.DataFrame objects with:
+        - monotonic datetime-like index
+        - boolean values
+
+    figsize
+        Matplotlib figure size.
+
+    title
+        Optional plot title.
+
+    line_kwargs
+        Extra kwargs passed to ax.plot().
+
+    boolean_alpha
+        Transparency of boolean background regions.
+    """
+    line_kwargs = line_kwargs or {}
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # ----------------------------
+    # Plot continuous registers
+    # ----------------------------
+    for obj in continuous:
+        if isinstance(obj, pd.Series):
+            obj = obj.to_frame()
+
+        if not obj.index.is_monotonic_increasing:
+            raise ValueError("Continuous register index must be monotonic increasing")
+
+        for col in obj.columns:
+            ax.plot(
+                obj.index,
+                obj[col],
+                label=str(col),
+                **line_kwargs,
+            )
+
+    # ----------------------------
+    # Paint boolean regions
+    # ----------------------------
+    colors = cycle(plt.rcParams["axes.prop_cycle"].by_key()["color"])
+
+    if isinstance(booleans, (pd.Series, pd.DataFrame)):
+        booleans = [booleans]
+
+    for obj in booleans:
+
+        if isinstance(obj, pd.Series):
+            obj = obj.to_frame()
+
+        for col in obj.columns:
+
+            color = next(colors)
+
+            s = obj[col].fillna(False).astype(bool)
+
+            # Find transitions
+            change = s.ne(s.shift()).cumsum()
+
+            for _, segment in s.groupby(change):
+                if segment.iloc[0]:
+
+                    start = segment.index[0]
+                    end = segment.index[-1]
+
+                    # extend end by one step if possible
+                    idx = s.index.get_indexer([end])[0]
+                    if idx < len(s.index) - 1:
+                        end = s.index[idx + 1]
+
+                    ax.axvspan(
+                        start,
+                        end,
+                        color=color,
+                        hatch='///' if col == "EndValve0" else None,
+                        ymax=0.1 if col == "EndValve0" else 1.0,
+                        alpha=boolean_alpha,
+                        label=col,
+                    )
+
+
+    # ----------------------------
+    # Cosmetics
+    # ----------------------------
+    ax.set_xlabel("Time")
+    ax.grid(True, alpha=0.3)
+
+    if title:
+        ax.set_title(title)
+
+
+    # handles, labels = ax.get_legend_handles_labels()
+    # print(f"Handles: {handles}\nLabels: {labels}")
+    # by_label = dict(zip(labels, handles)) # remove label duplicates
+    # ax.legend(by_label.values(), by_label.keys())
+    # print(f"Handles: {by_label.values()}\nLabels: {by_label.keys()}")
+    ax.legend()
+    plt.tight_layout()
+
+    return fig, ax
 
