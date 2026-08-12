@@ -27,7 +27,6 @@ def load_channel_info(base_path: str) -> tuple[dict[str], bool] :
     tsk_lgc = _read_json(f"{base_path}/behavior/Logs/tasklogic_input.json")
  
     channel_cfg = {}
-    print(tsk_lgc, tsk_lgc["name"] == "OlfactometerCalibration" and "task_parameters" in tsk_lgc and "channel_config" in tsk_lgc["task_parameters"])
     if tsk_lgc.get("name") == "OlfactometerCalibration" and "channel_config" in tsk_lgc.get("task_parameters", {}):
         # before v1, the channel config was in the tasklogic json on calibration tasks. We want to keep supporting this format for old sessions, but for new ones we moved the channel config to the rig input json, so now we need to check both places.
         is_calibration = True
@@ -51,6 +50,19 @@ def load_channel_info(base_path: str) -> tuple[dict[str], bool] :
                 channel_cfg["Channel"+str(num)]["odorant_dilution"] = rig_data["harp_olfactometer"]["calibration"]["channel_config"][str(num)]["odorant_dilution"]
             except:
                 print(f"Error when reading channel{num} in the rig input json for a calibration session")
+        
+        if "harp_olfactometer_extension" in rig_data:
+            for i, multiplexed_olfactometer in enumerate(rig_data["harp_olfactometer_extension"]):
+                if "calibration" in multiplexed_olfactometer and "channel_config" in multiplexed_olfactometer["calibration"]:
+                    if verbose: print("Found multiplexed olfactometer. Loading extra channels")
+                    for num in range(0, 4):
+                        try:
+                            channel_cfg["Channel"+str(num+4*(i+1))] = {}
+                            channel_cfg["Channel"+str(num+4*(i+1))]["odorant"] = multiplexed_olfactometer["calibration"]["channel_config"][str(num)]["odorant"]
+                            channel_cfg["Channel"+str(num+4*(i+1))]["flow_rate"] = multiplexed_olfactometer["calibration"]["channel_config"][str(num)]["flow_rate"]
+                            channel_cfg["Channel"+str(num+4*(i+1))]["odorant_dilution"] = multiplexed_olfactometer["calibration"]["channel_config"][str(num)]["odorant_dilution"]
+                        except:
+                            print(f"Error when reading channel{num} in the harp_olfactometer_extension calibration config in the rig input json for a calibration session")
 
     else:
         is_calibration = False
@@ -113,14 +125,21 @@ def load_sw_register(base_path: str, register: str) -> pd.DataFrame:
 def load_olf_registers(base_path: str) -> dict[str, pd.DataFrame|pd.Series]:
     """
     Reads the registers from the harp files and returns a dictionary, where the keys correspond to olfactometer registers and are pd.DataFrames.
-        
     """ 
     register_dict = {}
     OlfReader = harp.create_reader(base_path + "/behavior/Olfactometer.harp", include_common_registers=False)
 
     for name, reg in OlfReader.registers.items():
         register_dict[name] = reg.read()
-    
+
+    dirs = [entry.name for entry in os.scandir(base_path + "/behavior") if entry.is_dir()]
+    for i in range(1, 10):
+        if f"OlfactometerExtension{i}.harp" in dirs:
+            if verbose: print(f"Found OlfactometerExtension{i}. Loading its registers and saving them as *_m{i}")
+            MultiplexReader = harp.create_reader(base_path + f"/behavior/OlfactometerExtension{i}.harp", include_common_registers=False)
+            for name, reg in MultiplexReader.registers.items():
+                register_dict[name+f"_m{i}"] = reg.read()
+
     return register_dict
 
 def load_olf_and_alog(base_path: str, alog_channel: str = 'Channel0') -> dict[str, pd.DataFrame|pd.Series]:
